@@ -23,7 +23,7 @@ gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
 deals_board_id = st.sidebar.text_input("Deals Board ID", value="5030218428")
 work_orders_board_id = st.sidebar.text_input("Work Orders Board ID", value="5030218473")
 
-# Cached function to prevent repetitive hit limit on Monday.com API
+# Cached data loader to avoid hitting Monday.com rate limits
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_monday_boards(m_key: str, d_id: str, wo_id: str):
     service = MondayDataService(m_key)
@@ -85,10 +85,10 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
         with st.chat_message("assistant"):
             with st.spinner("Analyzing pipeline & operational data..."):
                 try:
-                    # Initialize official GenAI client
+                    # Initialize GenAI Client
                     client = genai.Client(api_key=clean_gemini_key)
                     
-                    # Truncate tables to top 30 rows to fit token constraints comfortably
+                    # Convert tables to markdown for LLM consumption
                     deals_markdown = st.session_state.deals_df.head(30).to_markdown(index=False)
                     wo_markdown = st.session_state.wo_df.head(30).to_markdown(index=False)
                     
@@ -112,9 +112,9 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
                     4. **Leadership Brief:** Conclude with a clearly labeled "### Leadership Brief" section offering strategic recommendations.
                     """
 
-                    # Call current stable GA model
+                    # Query currently active Flash GA model
                     response = client.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.6-flash",
                         contents=system_prompt,
                     )
 
