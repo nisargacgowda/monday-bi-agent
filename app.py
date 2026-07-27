@@ -23,7 +23,6 @@ gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
 deals_board_id = st.sidebar.text_input("Deals Board ID", value="5030218428")
 work_orders_board_id = st.sidebar.text_input("Work Orders Board ID", value="5030218473")
 
-# Cached data loader to avoid hitting Monday.com rate limits
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_monday_boards(m_key: str, d_id: str, wo_id: str):
     service = MondayDataService(m_key)
@@ -76,11 +75,9 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
 
     # Validation Checks
     if "deals_df" not in st.session_state or "wo_df" not in st.session_state:
-        error_msg = "Please click **'Sync Monday.com Data'** in the sidebar before asking questions!"
-        st.error(error_msg)
+        st.error("Please click **'Sync Monday.com Data'** in the sidebar before asking questions!")
     elif not gemini_api_key.strip():
-        error_msg = "Please provide your **Gemini API Key** in the sidebar."
-        st.error(error_msg)
+        st.error("Please provide your **Gemini API Key** in the sidebar.")
     else:
         clean_gemini_key = gemini_api_key.strip()
         
@@ -89,52 +86,53 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
                 try:
                     client = genai.Client(api_key=clean_gemini_key)
                     
-                    # Convert DataFrames to markdown table format for the LLM
-                    deals_markdown = st.session_state.deals_df.to_markdown(index=False)
-                    wo_markdown = st.session_state.wo_df.to_markdown(index=False)
+                    # Truncate tables to top 30 rows to fit comfortably in free-tier token windows
+                    deals_markdown = st.session_state.deals_df.head(30).to_markdown(index=False)
+                    wo_markdown = st.session_state.wo_df.head(30).to_markdown(index=False)
                     
                     system_prompt = f"""
                     You are an Executive Business Intelligence Agent for Skylark Drones leadership and founders.
                     Your objective is to deliver precise, high-level, data-backed insights across sales pipeline and execution data.
 
-                    ### 1. Deals Board Data (Sales Pipeline):
+                    ### 1. Deals Board Data (Sales Pipeline - Sample/Summary):
                     {deals_markdown}
 
-                    ### 2. Work Orders Board Data (Execution & Projects):
+                    ### 2. Work Orders Board Data (Execution & Projects - Sample/Summary):
                     {wo_markdown}
 
                     ### User Query:
                     {prompt}
 
                     ### Response Guidelines:
-                    1. **Direct Answer & Metrics:** Start with concise executive summary numbers (Total Revenue, Pipeline Value, Conversion Rates, Project Counts).
+                    1. **Direct Answer & Metrics:** Start with concise executive summary numbers (Total Revenue, Pipeline Value, Project Counts).
                     2. **Cross-Board Analysis:** Combine metrics from both Deals and Work Orders where appropriate.
-                    3. **Data Quality Warnings & Caveats:** Highlight missing values, unassigned owners, or unformatted close dates that impact accuracy.
-                    4. **Leadership Brief:** Conclude with a clearly labeled "### Leadership Brief" section offering strategic recommendations and risk assessments.
+                    3. **Data Quality Warnings & Caveats:** Highlight missing values or unassigned owners that impact accuracy.
+                    4. **Leadership Brief:** Conclude with a clearly labeled "### Leadership Brief" section offering strategic recommendations.
                     """
 
-                    # Query model with fallback handling
-                    model_name = "gemini-2.5-flash"
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=system_prompt,
-                        )
-                        answer = response.text
-                    except APIError:
-                        # Fallback to gemini-2.0-flash if 2.5 is unavailable in the region
-                        response = client.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=system_prompt,
-                        )
-                        answer = response.text
+                    # Iterate over supported active models to bypass specific quota locks
+                    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
+                    answer = None
+                    last_error = None
 
-                    st.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                    for model_id in candidate_models:
+                        try:
+                            response = client.models.generate_content(
+                                model=model_id,
+                                contents=system_prompt,
+                            )
+                            answer = response.text
+                            if answer:
+                                break
+                        except Exception as err:
+                            last_error = err
+                            continue
 
-                except APIError as e:
-                    err_txt = f"**Gemini API Error:** {e.message}\nPlease verify your API key at [aistudio.google.com](https://aistudio.google.com)."
-                    st.error(err_txt)
+                    if answer:
+                        st.markdown(answer)
+                        st.session_state.messages.append({"role": "assistant", "content": answer})
+                    else:
+                        st.error(f"Quota Error across models: {str(last_error)}. Please check Google AI Studio key permissions.")
+
                 except Exception as e:
-                    err_txt = f"**Error processing query:** {str(e)}"
-                    st.error(err_txt)
+                    st.error(f"Error processing query: {str(e)}")
