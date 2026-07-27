@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from openai import OpenAI
+from google import genai
 from monday_service import MondayDataService
 
 st.set_page_config(page_title="Skylark BI Agent", layout="wide")
@@ -9,7 +9,7 @@ st.title("📊 Monday.com Business Intelligence Agent")
 # Sidebar Credentials
 st.sidebar.header("🔑 Credentials & Config")
 monday_api_key = st.sidebar.text_input("Monday API Key", type="password")
-openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
+gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
 deals_board_id = st.sidebar.text_input("Deals Board ID")
 work_orders_board_id = st.sidebar.text_input("Work Orders Board ID")
 
@@ -47,15 +47,15 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for energy sector t
 
     if "deals_df" not in st.session_state or "wo_df" not in st.session_state:
         st.error("Please click 'Sync Monday.com Data' in the sidebar first!")
-    elif not openai_api_key:
-        st.error("Please provide an OpenAI API key in the sidebar.")
+    elif not gemini_api_key:
+        st.error("Please provide a Gemini API key in the sidebar.")
     else:
-        client = OpenAI(api_key=openai_api_key)
+        client = genai.Client(api_key=gemini_api_key)
         
         deals_summary = st.session_state.deals_df.to_markdown(index=False)
         wo_summary = st.session_state.wo_df.to_markdown(index=False)
         
-        system_prompt = f"""
+        full_prompt = f"""
         You are an executive BI Assistant for Skylark Drones founders.
         Analyze the provided Monday.com board data to answer executive business queries.
         
@@ -65,6 +65,9 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for energy sector t
         ### Work Orders Board Data:
         {wo_summary}
         
+        ### User Query:
+        {prompt}
+        
         ### Guidance:
         1. Give direct executive summary stats (Revenue, Pipeline value, counts).
         2. Always note **Data Quality Warnings** (e.g., missing close dates, unknown sectors).
@@ -73,13 +76,10 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for energy sector t
         """
         
         with st.chat_message("assistant"):
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ]
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=full_prompt,
             )
-            answer = response.choices[0].message.content
+            answer = response.text
             st.markdown(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
