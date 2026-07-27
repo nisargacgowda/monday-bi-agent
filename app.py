@@ -23,6 +23,7 @@ gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
 deals_board_id = st.sidebar.text_input("Deals Board ID", value="5030218428")
 work_orders_board_id = st.sidebar.text_input("Work Orders Board ID", value="5030218473")
 
+# Cached function to prevent repetitive hit limit on Monday.com API
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_monday_boards(m_key: str, d_id: str, wo_id: str):
     service = MondayDataService(m_key)
@@ -84,11 +85,12 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
         with st.chat_message("assistant"):
             with st.spinner("Analyzing pipeline & operational data..."):
                 try:
+                    # Initialize official GenAI client
                     client = genai.Client(api_key=clean_gemini_key)
                     
-                    # Truncate tables to fit comfortably inside prompt window
-                    deals_markdown = st.session_state.deals_df.head(40).to_markdown(index=False)
-                    wo_markdown = st.session_state.wo_df.head(40).to_markdown(index=False)
+                    # Truncate tables to top 30 rows to fit token constraints comfortably
+                    deals_markdown = st.session_state.deals_df.head(30).to_markdown(index=False)
+                    wo_markdown = st.session_state.wo_df.head(30).to_markdown(index=False)
                     
                     system_prompt = f"""
                     You are an Executive Business Intelligence Agent for Skylark Drones leadership and founders.
@@ -110,31 +112,19 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
                     4. **Leadership Brief:** Conclude with a clearly labeled "### Leadership Brief" section offering strategic recommendations.
                     """
 
-                    # Query currently active GA models
-                    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
-                    answer = None
-                    last_err = None
+                    # Call current stable GA model
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=system_prompt,
+                    )
 
-                    for model_id in candidate_models:
-                        try:
-                            response = client.models.generate_content(
-                                model=model_id,
-                                contents=system_prompt,
-                            )
-                            if response and response.text:
-                                answer = response.text
-                                break
-                        except Exception as err:
-                            last_err = err
-                            continue
-
-                    if answer:
-                        st.markdown(answer)
-                        st.session_state.messages.append({"role": "assistant", "content": answer})
+                    if response and response.text:
+                        st.markdown(response.text)
+                        st.session_state.messages.append({"role": "assistant", "content": response.text})
                     else:
-                        st.error(f"Error calling Gemini API: {str(last_err)}")
+                        st.error("No text response returned from the model.")
 
                 except APIError as e:
                     st.error(f"Gemini API Error: {e.message}")
                 except Exception as e:
-                    st.error(f"Unexpected error: {str(e)}")
+                    st.error(f"Error processing query: {str(e)}")
