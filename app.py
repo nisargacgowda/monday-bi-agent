@@ -77,7 +77,7 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for energy sector t
         
         with st.chat_message("assistant"):
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=full_prompt,
             )
             answer = response.text
