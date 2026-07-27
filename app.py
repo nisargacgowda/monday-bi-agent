@@ -62,12 +62,12 @@ if "messages" not in st.session_state:
         }
     ]
 
-# Render prior messages
+# Render prior chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Prompt Input
+# User Chat Input
 if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sector this quarter?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -86,18 +86,18 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
                 try:
                     client = genai.Client(api_key=clean_gemini_key)
                     
-                    # Truncate tables to top 30 rows to fit comfortably in free-tier token windows
-                    deals_markdown = st.session_state.deals_df.head(30).to_markdown(index=False)
-                    wo_markdown = st.session_state.wo_df.head(30).to_markdown(index=False)
+                    # Truncate tables to fit comfortably inside prompt window
+                    deals_markdown = st.session_state.deals_df.head(40).to_markdown(index=False)
+                    wo_markdown = st.session_state.wo_df.head(40).to_markdown(index=False)
                     
                     system_prompt = f"""
                     You are an Executive Business Intelligence Agent for Skylark Drones leadership and founders.
                     Your objective is to deliver precise, high-level, data-backed insights across sales pipeline and execution data.
 
-                    ### 1. Deals Board Data (Sales Pipeline - Sample/Summary):
+                    ### 1. Deals Board Data (Sales Pipeline):
                     {deals_markdown}
 
-                    ### 2. Work Orders Board Data (Execution & Projects - Sample/Summary):
+                    ### 2. Work Orders Board Data (Execution & Projects):
                     {wo_markdown}
 
                     ### User Query:
@@ -110,10 +110,10 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
                     4. **Leadership Brief:** Conclude with a clearly labeled "### Leadership Brief" section offering strategic recommendations.
                     """
 
-                    # Iterate over supported active models to bypass specific quota locks
-                    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
+                    # Query currently active GA models
+                    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
                     answer = None
-                    last_error = None
+                    last_err = None
 
                     for model_id in candidate_models:
                         try:
@@ -121,18 +121,20 @@ if prompt := st.chat_input("e.g. How is our pipeline looking for the energy sect
                                 model=model_id,
                                 contents=system_prompt,
                             )
-                            answer = response.text
-                            if answer:
+                            if response and response.text:
+                                answer = response.text
                                 break
                         except Exception as err:
-                            last_error = err
+                            last_err = err
                             continue
 
                     if answer:
                         st.markdown(answer)
                         st.session_state.messages.append({"role": "assistant", "content": answer})
                     else:
-                        st.error(f"Quota Error across models: {str(last_error)}. Please check Google AI Studio key permissions.")
+                        st.error(f"Error calling Gemini API: {str(last_err)}")
 
+                except APIError as e:
+                    st.error(f"Gemini API Error: {e.message}")
                 except Exception as e:
-                    st.error(f"Error processing query: {str(e)}")
+                    st.error(f"Unexpected error: {str(e)}")
